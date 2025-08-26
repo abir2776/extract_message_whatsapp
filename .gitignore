@@ -140,6 +140,7 @@ celerybeat.pid
 .venv
 env/
 venv/
+chrome-profile-wa/
 ENV/
 env.bak/
 venv.bak/
