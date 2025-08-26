@@ -1,14 +1,13 @@
 import os
 import re
-import time
 import sqlite3
+import time
 from datetime import datetime
 
 from selenium import webdriver
 from selenium.common.exceptions import (
-    TimeoutException,
     StaleElementReferenceException,
-    NoSuchElementException,
+    TimeoutException,
 )
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -375,13 +374,13 @@ def click_chat_by_name(driver, chat_name, max_attempts=2):
     return False
 
 
-def get_last_message_from_open_chat(driver):
+def get_last_messages_from_open_chat(driver, num_messages=10):
     """
-    Get the actual last message from an opened chat (more detailed)
+    Get the last N messages from an opened chat to search for emails
     """
     try:
         # Wait for messages to load
-        time.sleep(1)
+        time.sleep(1.5)
 
         # Find all message elements
         message_selectors = [
@@ -398,40 +397,85 @@ def get_last_message_from_open_chat(driver):
                 break
 
         if not messages:
-            return None
+            return []
 
-        # Get the last message
-        last_msg = messages[-1]
+        # Get the last N messages (or all if fewer than N)
+        last_messages = (
+            messages[-num_messages:] if len(messages) >= num_messages else messages
+        )
 
-        # Extract text
-        body = ""
-        try:
-            text_el = last_msg.find_element(
-                By.CSS_SELECTOR, "span.selectable-text, span._ao3e"
-            )
-            body = text_el.text.strip()
-        except:
-            body = last_msg.text.strip()
+        extracted_messages = []
 
-        # Extract metadata
-        pre_plain = last_msg.get_attribute("data-pre-plain-text") or ""
+        for i, msg in enumerate(
+            reversed(last_messages)
+        ):  # Process from newest to oldest
+            try:
+                # Extract text
+                body = ""
+                try:
+                    text_el = msg.find_element(
+                        By.CSS_SELECTOR, "span.selectable-text, span._ao3e"
+                    )
+                    body = text_el.text.strip()
+                except:
+                    body = msg.text.strip()
 
-        # Determine if it's incoming or outgoing
-        direction = "in"
-        try:
-            parent = last_msg.find_element(
-                By.XPATH, "./ancestor::div[contains(@class, 'message-')]"
-            )
-            if "message-out" in parent.get_attribute("class"):
-                direction = "out"
-        except:
-            pass
+                # Skip empty messages
+                if not body:
+                    continue
 
-        return {"body": body, "direction": direction, "pre_plain": pre_plain}
+                # Extract metadata
+                pre_plain = msg.get_attribute("data-pre-plain-text") or ""
+
+                # Determine if it's incoming or outgoing
+                direction = "in"
+                try:
+                    parent = msg.find_element(
+                        By.XPATH, "./ancestor::div[contains(@class, 'message-')]"
+                    )
+                    if "message-out" in parent.get_attribute("class"):
+                        direction = "out"
+                except:
+                    pass
+
+                extracted_messages.append(
+                    {
+                        "body": body,
+                        "direction": direction,
+                        "pre_plain": pre_plain,
+                        "position": i
+                        + 1,  # 1 = most recent, 2 = second most recent, etc.
+                    }
+                )
+
+            except Exception as e:
+                print(f"    Warning: Error extracting message {i + 1}: {e}")
+                continue
+
+        return extracted_messages
 
     except Exception as e:
-        print(f"Error getting last message from open chat: {e}")
-        return None
+        print(f"    Error getting messages from open chat: {e}")
+        return []
+
+
+def find_email_in_messages(messages):
+    """
+    Search for email addresses in a list of messages
+    Returns the first email found and the message it was found in
+    """
+    for msg in messages:
+        email = extract_email_from_text(msg["body"])
+        if email:
+            return {
+                "email": email,
+                "found_in_message": msg["body"][:100] + "..."
+                if len(msg["body"]) > 100
+                else msg["body"],
+                "message_position": msg["position"],
+                "direction": msg["direction"],
+            }
+    return None
 
 
 def process_chats_with_scrolling(driver):
@@ -481,7 +525,7 @@ def process_chats_with_scrolling(driver):
                     new_chats_found += 1
 
         if new_chats_found == 0:
-            print(f"No new chats in this batch, scrolling...")
+            print("No new chats in this batch, scrolling...")
             scroll_down_and_get_chats(driver, container)
             no_new_chats_count += 1
             continue
@@ -502,34 +546,48 @@ def process_chats_with_scrolling(driver):
                 if click_chat_element(
                     driver, chat_data["element"], chat_data["chat_name"]
                 ):
-                    detailed_msg = get_last_message_from_open_chat(driver)
+                    # Get last 10 messages to search for emails
+                    messages = get_last_messages_from_open_chat(driver, num_messages=10)
 
-                    if detailed_msg:
-                        print(f"    Message: {detailed_msg['body'][:80]}...")
+                    if messages:
+                        print(f"    Retrieved {len(messages)} messages")
 
-                        # Extract phone and email
+                        # Search for email in all messages
+                        email_result = find_email_in_messages(messages)
+
+                        # Extract phone from chat name
                         phone = clean_phone_number(chat_data["chat_name"])
-                        email = extract_email_from_text(detailed_msg["body"])
 
-                        print(f"    Phone: {phone}")
-                        print(f"    Email: {email}")
+                        if email_result:
+                            print(f"    Phone: {phone}")
+                            print(
+                                f"    Email: {email_result['email']} (found in message #{email_result['message_position']})"
+                            )
+                            print(f"    Found in: {email_result['found_in_message']}")
+                            print(f"    Direction: {email_result['direction']}")
 
-                        # Save to database if both exist
-                        if phone and email:
-                            if save_contact(phone, email):
-                                print("    💾 Saved to database!")
-                                batch_saved += 1
-                                total_saved += 1
+                            # Save to database if both phone and email exist
+                            if phone and email_result["email"]:
+                                if save_contact(phone, email_result["email"]):
+                                    print("    💾 Saved to database!")
+                                    batch_saved += 1
+                                    total_saved += 1
+                                else:
+                                    print("    📝 Already exists")
                             else:
-                                print("    📝 Already exists")
+                                print("    ⚠️  Missing phone")
                         else:
-                            print("    ⚠️  Missing phone or email")
+                            print(f"    Phone: {phone}")
+                            print(
+                                f"    Email: Not found in last {len(messages)} messages"
+                            )
+                            print("    ⚠️  No email found")
 
                         total_processed += 1
                     else:
-                        print("    ⚠️  No message found")
+                        print("    ⚠️  No messages found")
                 else:
-                    print(f"    ❌ Could not open chat")
+                    print("    ❌ Could not open chat")
 
             except Exception as e:
                 print(f"    ❌ Error processing chat: {e}")
@@ -545,7 +603,7 @@ def process_chats_with_scrolling(driver):
             print("Reached maximum batch limit")
             break
 
-    print(f"\n📊 Final Summary:")
+    print("\n📊 Final Summary:")
     print(f"   Total unique chats processed: {total_processed}")
     print(f"   New contacts saved: {total_saved}")
     print(f"   Batches processed: {batch_count}")
@@ -556,11 +614,11 @@ def process_chats_with_scrolling(driver):
 def print_database_stats():
     """Print current database statistics"""
     contacts = get_all_contacts()
-    print(f"\n📊 Database Stats:")
+    print("\n📊 Database Stats:")
     print(f"   Total contacts: {len(contacts)}")
 
     if contacts:
-        print(f"   Latest contacts:")
+        print("   Latest contacts:")
         for phone, email, created_at in contacts[:3]:  # Show latest 3
             print(f"     • {phone} - {email} ({created_at})")
 
