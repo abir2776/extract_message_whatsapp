@@ -27,15 +27,28 @@ def init_database():
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
 
+    # First, create the table with the new structure
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS contacts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             phone TEXT NOT NULL,
             email TEXT NOT NULL,
+            is_verified BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(phone, email)
+            UNIQUE(email)
         )
     """)
+
+    # Check if the is_verified column exists (for existing databases)
+    cursor.execute("PRAGMA table_info(contacts)")
+    columns = [column[1] for column in cursor.fetchall()]
+
+    # If is_verified column doesn't exist, add it
+    if "is_verified" not in columns:
+        cursor.execute(
+            "ALTER TABLE contacts ADD COLUMN is_verified BOOLEAN DEFAULT FALSE"
+        )
+        print("✓ Added is_verified column to existing table")
 
     conn.commit()
     conn.close()
@@ -44,7 +57,7 @@ def init_database():
 
 def save_contact(phone, email):
     """
-    Save phone and email to database
+    Save phone and email to database with is_verified set to False
     Only saves if both phone and email are provided
     Returns True if saved, False if already exists or invalid data
     """
@@ -60,9 +73,9 @@ def save_contact(phone, email):
         cursor.execute(
             """
             SELECT COUNT(*) FROM contacts 
-            WHERE phone = ? AND email = ?
+            WHERE email = ?
         """,
-            (phone, email),
+            (email,),
         )
 
         if cursor.fetchone()[0] > 0:
@@ -70,19 +83,19 @@ def save_contact(phone, email):
             conn.close()
             return False
 
-        # Insert new contact
+        # Insert new contact with is_verified = False
         cursor.execute(
             """
-            INSERT INTO contacts (phone, email) 
-            VALUES (?, ?)
+            INSERT INTO contacts (phone, email, is_verified) 
+            VALUES (?, ?, ?)
         """,
-            (phone, email),
+            (phone, email, False),
         )
 
         conn.commit()
         conn.close()
 
-        print(f"✅ New contact saved: {phone} - {email}")
+        print(f"✅ New contact saved: {phone} - {email} (verified: False)")
         return True
 
     except sqlite3.IntegrityError:
@@ -100,7 +113,7 @@ def get_all_contacts():
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT phone, email, created_at FROM contacts 
+            SELECT phone, email, is_verified, created_at FROM contacts 
             ORDER BY created_at DESC
         """)
 
@@ -111,6 +124,38 @@ def get_all_contacts():
     except Exception as e:
         print(f"❌ Error retrieving contacts: {e}")
         return []
+
+
+def update_verification_status(email, is_verified=True):
+    """
+    Update the verification status of a contact by email
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE contacts 
+            SET is_verified = ? 
+            WHERE email = ?
+        """,
+            (is_verified, email),
+        )
+
+        if cursor.rowcount > 0:
+            conn.commit()
+            conn.close()
+            print(f"✅ Updated verification status for {email}: {is_verified}")
+            return True
+        else:
+            conn.close()
+            print(f"⚠️  No contact found with email: {email}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error updating verification status: {e}")
+        return False
 
 
 def extract_email_from_text(text):
@@ -125,10 +170,10 @@ def clean_phone_number(phone_text):
     # Remove common prefixes and clean the phone number
     phone = phone_text.strip()
 
-    # Remove WhatsApp Web formatting
-    phone = phone.replace("~", "").replace("+", "")
+    # Remove WhatsApp Web formatting (but keep the + sign)
+    phone = phone.replace("~", "")
 
-    # Extract only numbers and some special chars
+    # Extract only numbers and some special chars (including + sign)
     phone = re.sub(r"[^\d\s\-\(\)\+]", "", phone)
 
     return phone.strip() if phone else None
@@ -617,10 +662,19 @@ def print_database_stats():
     print("\n📊 Database Stats:")
     print(f"   Total contacts: {len(contacts)}")
 
+    verified_count = sum(
+        1 for contact in contacts if contact[2]
+    )  # is_verified is at index 2
+    unverified_count = len(contacts) - verified_count
+
+    print(f"   Verified contacts: {verified_count}")
+    print(f"   Unverified contacts: {unverified_count}")
+
     if contacts:
         print("   Latest contacts:")
-        for phone, email, created_at in contacts[:3]:  # Show latest 3
-            print(f"     • {phone} - {email} ({created_at})")
+        for phone, email, is_verified, created_at in contacts[:3]:  # Show latest 3
+            status = "✓" if is_verified else "✗"
+            print(f"     • {phone} - {email} [{status}] ({created_at})")
 
 
 def main():
