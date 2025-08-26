@@ -1,5 +1,6 @@
 import os
 import re
+import sqlite3
 import time
 from datetime import datetime
 
@@ -14,6 +15,119 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Configuration
 WHATSAPP_WEB = "https://web.whatsapp.com/"
 CHROME_PROFILE_DIR = os.path.abspath("./chrome-profile-wa")
+DATABASE_FILE = "whatsapp_contacts.db"
+
+
+def init_database():
+    """Initialize SQLite database and create table if not exists"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone TEXT NOT NULL,
+            email TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(phone, email)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+    print(f"✓ Database initialized: {DATABASE_FILE}")
+
+
+def save_contact(phone, email):
+    """
+    Save phone and email to database
+    Only saves if both phone and email are provided
+    Returns True if saved, False if already exists or invalid data
+    """
+    if not phone or not email:
+        print("❌ Both phone and email are required")
+        return False
+
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+
+        # Check if this combination already exists
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM contacts 
+            WHERE phone = ? AND email = ?
+        """,
+            (phone, email),
+        )
+
+        if cursor.fetchone()[0] > 0:
+            print(f"⚠️  Contact already exists: {phone} - {email}")
+            conn.close()
+            return False
+
+        # Insert new contact
+        cursor.execute(
+            """
+            INSERT INTO contacts (phone, email) 
+            VALUES (?, ?)
+        """,
+            (phone, email),
+        )
+
+        conn.commit()
+        conn.close()
+
+        print(f"✅ New contact saved: {phone} - {email}")
+        return True
+
+    except sqlite3.IntegrityError:
+        print(f"⚠️  Contact already exists: {phone} - {email}")
+        return False
+    except Exception as e:
+        print(f"❌ Error saving contact: {e}")
+        return False
+
+
+def get_all_contacts():
+    """Get all contacts from database"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT phone, email, created_at FROM contacts 
+            ORDER BY created_at DESC
+        """)
+
+        contacts = cursor.fetchall()
+        conn.close()
+
+        return contacts
+    except Exception as e:
+        print(f"❌ Error retrieving contacts: {e}")
+        return []
+
+
+def extract_email_from_text(text):
+    """Extract email from text using regex"""
+    pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+    match = re.search(pattern, text)
+    return match.group() if match else None
+
+
+def clean_phone_number(phone_text):
+    """Clean and format phone number"""
+    # Remove common prefixes and clean the phone number
+    phone = phone_text.strip()
+
+    # Remove WhatsApp Web formatting
+    phone = phone.replace("~", "").replace("+", "")
+
+    # Extract only numbers and some special chars
+    phone = re.sub(r"[^\d\s\-\(\)\+]", "", phone)
+
+    return phone.strip() if phone else None
 
 
 def make_driver():
@@ -93,36 +207,6 @@ def get_all_chats_with_last_message(driver):
         for i, chat in enumerate(chat_items):
             try:
                 print(f"Checking chat {i + 1}/{len(chat_items)}")
-
-                # Check if chat has unread indicator
-                # has_unread = False
-
-                # # Look for unread badge/count
-                # unread_badges = chat.find_elements(By.CSS_SELECTOR,
-                #     "span[data-testid='icon-unread-count'], "
-                #     "div[data-testid='unread-count'], "
-                #     "span[aria-label*='unread'], "
-                #     "div[aria-label*='unread']"
-                # )
-
-                # if unread_badges:
-                #     has_unread = True
-                #     print(f"  ✓ Found unread badge")
-
-                # Alternative: check for bold chat name (another unread indicator)
-                # if not has_unread:
-                #     bold_names = chat.find_elements(By.CSS_SELECTOR,
-                #         "span[dir='auto'] strong, "
-                #         "div[dir='auto'] strong, "
-                #         "span[title][style*='font-weight'], "
-                #         "*[style*='font-weight: 700']"
-                #     )
-                #     if bold_names:
-                #         has_unread = True
-                #         print(f"  ✓ Found bold chat name (unread indicator)")
-
-                # if not has_unread:
-                #     continue
 
                 # Get chat name
                 chat_name = "Unknown"
@@ -266,7 +350,22 @@ def get_last_message_from_open_chat(driver):
         return None
 
 
+def print_database_stats():
+    """Print current database statistics"""
+    contacts = get_all_contacts()
+    print("\n📊 Database Stats:")
+    print(f"   Total contacts: {len(contacts)}")
+
+    if contacts:
+        print("   Latest contacts:")
+        for phone, email, created_at in contacts[:3]:  # Show latest 3
+            print(f"     • {phone} - {email} ({created_at})")
+
+
 def main():
+    # Initialize database
+    init_database()
+
     driver = make_driver()
 
     if not wait_for_login(driver):
@@ -274,6 +373,8 @@ def main():
         return
 
     try:
+        print_database_stats()
+
         while True:
             print(f"\n--- Checking at {datetime.now().strftime('%H:%M:%S')} ---")
 
@@ -286,15 +387,9 @@ def main():
                 print(f"\n📬 Found {len(unread_chats)} unread chats:")
                 print("=" * 60)
 
-                # for i, chat in enumerate(unread_chats, 1):
-                #     print(f"{i}. {chat['chat_name']}")
-                #     print(f"   Last: {chat['last_message']}")
-                #     print(f"   Time: {chat['timestamp']}")
-                #     print("-" * 40)
-
                 # Optionally, open each chat to get full last message
                 print("\nGetting detailed last messages...")
-                for chat in unread_chats:  # Limit to first 3 to avoid spam
+                for chat in unread_chats:
                     try:
                         print(f"\nOpening {chat['chat_name']}...")
                         chat["element"].click()
@@ -304,16 +399,25 @@ def main():
                         if detailed_msg:
                             print(f"  Full message: {detailed_msg['body']}")
                             print(f"  Direction: {detailed_msg['direction']}")
-                            phone = chat["chat_name"]
-                            phone = phone.strip()
-                            last_meassage = detailed_msg["body"]
-                            pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-                            match = re.search(pattern, last_meassage)
-                            email = None
-                            if match:
-                                email = match.group()
+
+                            # Extract phone and email
+                            phone = clean_phone_number(chat["chat_name"])
+                            last_message = detailed_msg["body"]
+                            email = extract_email_from_text(last_message)
+
+                            print(f"  Extracted phone: {phone}")
+                            print(f"  Extracted email: {email}")
+
+                            # Save to database if both phone and email exist
+                            if phone and email:
+                                if save_contact(phone, email):
+                                    print("  💾 Contact saved to database!")
+                                else:
+                                    print("  📝 Contact already exists or not saved")
                             else:
-                                print("No email found")
+                                print(
+                                    "  ⚠️  Missing phone or email, not saving to database"
+                                )
 
                     except Exception as e:
                         print(f"  Error opening chat: {e}")
@@ -323,6 +427,7 @@ def main():
 
     except KeyboardInterrupt:
         print("\n🛑 Stopped by user")
+        print_database_stats()
     except Exception as e:
         print(f"❌ Error: {e}")
     finally:
