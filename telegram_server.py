@@ -8,7 +8,6 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     StaleElementReferenceException,
     TimeoutException,
-    NoSuchElementException,
 )
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -54,9 +53,7 @@ def init_database():
 
     # If chat_name column doesn't exist, add it
     if "chat_name" not in columns:
-        cursor.execute(
-            "ALTER TABLE contacts ADD COLUMN chat_name TEXT"
-        )
+        cursor.execute("ALTER TABLE contacts ADD COLUMN chat_name TEXT")
         print("✓ Added chat_name column to existing table")
 
     conn.commit()
@@ -104,7 +101,9 @@ def save_contact(phone, email, chat_name=""):
         conn.commit()
         conn.close()
 
-        print(f"✅ New contact saved: {phone} - {email} (chat: {chat_name}) (verified: False)")
+        print(
+            f"✅ New contact saved: {phone} - {email} (chat: {chat_name}) (verified: False)"
+        )
         return True
 
     except sqlite3.IntegrityError:
@@ -183,7 +182,7 @@ def extract_phone_from_text(text):
         r"\d{3}[\s\-]?\d{3}[\s\-]?\d{4}",  # US format xxx-xxx-xxxx
         r"\d{10,15}",  # Simple 10-15 digit numbers
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
@@ -195,7 +194,7 @@ def clean_phone_number(phone_text):
     """Clean and format phone number"""
     if not phone_text:
         return None
-        
+
     # Remove common prefixes and clean the phone number
     phone = phone_text.strip()
 
@@ -215,11 +214,13 @@ def make_driver():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
+    options.add_experimental_option("useAutomationExtension", False)
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    driver.execute_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
     driver.set_window_size(1200, 900)
     return driver
 
@@ -231,10 +232,10 @@ def wait_for_login(driver, timeout=180):
 
     print("Waiting for login (enter phone and verification code)...")
     print("Make sure to:")
-    print("1. Enter your phone number")  
+    print("1. Enter your phone number")
     print("2. Enter the verification code from your Telegram app")
     print("3. Wait for the chat list to load")
-    
+
     wait = WebDriverWait(driver, timeout)
 
     try:
@@ -244,23 +245,17 @@ def wait_for_login(driver, timeout=180):
                 EC.presence_of_element_located(
                     (By.CSS_SELECTOR, ".chat-list.custom-scroll")
                 ),
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".chat-list")
-                ),
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".ListItem.Chat")
-                ),
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".ChatFolders")
-                ),
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".chat-list")),
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".ListItem.Chat")),
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".ChatFolders")),
             )
         )
         print("✓ Login successful!")
-        
+
         # Add a pause to let everything load
         print("Waiting 5 seconds for full page load...")
         time.sleep(5)
-        
+
         return True
     except TimeoutException:
         print("✗ Login failed or timed out")
@@ -272,31 +267,29 @@ def get_chat_container(driver):
     chat_container_selectors = [
         # Based on your actual structure
         ".chat-list.custom-scroll",
-        ".chat-list", 
+        ".chat-list",
         "div.chat-list",
-        
         # Fallback selectors
         "[class*='chat-list']",
         ".ChatFolders",
         "[class*='ChatFolders']",
-        
         # Generic containers
         ".custom-scroll",
         "[class*='scroll']",
     ]
 
-    print(f"\n🔍 Looking for chat container...")
+    print("\n🔍 Looking for chat container...")
     for i, selector in enumerate(chat_container_selectors):
         try:
-            print(f"Trying container selector {i+1}: {selector}")
+            print(f"Trying container selector {i + 1}: {selector}")
             container = driver.find_element(By.CSS_SELECTOR, selector)
             if container:
                 print(f"✓ Found chat container with selector: {selector}")
-                
+
                 # Check if container has any content
                 container_html = container.get_attribute("outerHTML")[:500]
                 print(f"Container preview: {container_html}...")
-                
+
                 return container
         except Exception as e:
             print(f"  Failed: {e}")
@@ -309,64 +302,73 @@ def get_chat_container(driver):
 def debug_page_structure(driver):
     """Debug function to inspect the page structure"""
     print("\n🔍 DEBUG: Inspecting page structure...")
-    
+
     try:
         # Get page title
         title = driver.title
         print(f"Page title: {title}")
-        
+
         # Get current URL
         current_url = driver.current_url
         print(f"Current URL: {current_url}")
-        
+
         # Try to find any elements that might contain chats
         debug_selectors = [
             "div",
-            "ul", 
+            "ul",
             "li",
             "[class*='chat']",
-            "[class*='dialog']", 
+            "[class*='dialog']",
             "[class*='list']",
             "[class*='conversation']",
             "[class*='message']",
         ]
-        
+
         for selector in debug_selectors:
             try:
                 elements = driver.find_elements(By.CSS_SELECTOR, selector)
                 if len(elements) > 0:
                     print(f"Found {len(elements)} elements with selector: {selector}")
-                    
+
                     # Show first few elements' classes and text
                     for i, elem in enumerate(elements[:3]):
                         try:
                             classes = elem.get_attribute("class") or "no-class"
-                            text = elem.text[:50] + "..." if len(elem.text) > 50 else elem.text
-                            print(f"  Element {i+1}: class='{classes}', text='{text}'")
+                            text = (
+                                elem.text[:50] + "..."
+                                if len(elem.text) > 50
+                                else elem.text
+                            )
+                            print(
+                                f"  Element {i + 1}: class='{classes}', text='{text}'"
+                            )
                         except:
                             continue
             except:
                 continue
-                
+
         # Try to get the HTML structure of sidebar
         try:
-            sidebar = driver.find_element(By.CSS_SELECTOR, ".sidebar-left, .left-column, [class*='sidebar'], [class*='left']")
+            sidebar = driver.find_element(
+                By.CSS_SELECTOR,
+                ".sidebar-left, .left-column, [class*='sidebar'], [class*='left']",
+            )
             if sidebar:
-                print(f"\nSidebar HTML structure (first 1000 chars):")
+                print("\nSidebar HTML structure (first 1000 chars):")
                 print(sidebar.get_attribute("outerHTML")[:1000] + "...")
         except:
             print("No sidebar found")
-            
+
     except Exception as e:
         print(f"Debug error: {e}")
 
 
 def get_current_visible_chats(driver):
     """Get currently visible chat elements in the viewport"""
-    
+
     # First run debug if no chats found
     debug_page_structure(driver)
-    
+
     # Extended list of selectors based on different Telegram versions
     chat_selectors = [
         # Based on your actual Telegram structure
@@ -374,13 +376,11 @@ def get_current_visible_chats(driver):
         "div.ListItem.Chat",
         ".chat-list .ListItem.Chat",
         ".ListItem.Chat",
-        
         # Fallback selectors
         ".chat-list div[class*='ListItem']",
         "[class*='chat-item-clickable']",
         "div[class*='Chat'][class*='clickable']",
         ".chat-list > div",
-        
         # Very broad selectors as last resort
         ".chat-list div",
         "[class*='chat-list'] div",
@@ -390,10 +390,10 @@ def get_current_visible_chats(driver):
 
     for i, selector in enumerate(chat_selectors):
         try:
-            print(f"Trying selector {i+1}: {selector}")
+            print(f"Trying selector {i + 1}: {selector}")
             chat_items = driver.find_elements(By.CSS_SELECTOR, selector)
             print(f"  Found {len(chat_items)} elements")
-            
+
             if chat_items:
                 # Filter out only visible elements with meaningful content
                 visible_chats = []
@@ -405,30 +405,32 @@ def get_current_visible_chats(driver):
                             if text and len(text) > 1:
                                 visible_chats.append(chat)
                                 if j < 3:  # Show first 3 for debugging
-                                    print(f"    Chat {j+1}: {text[:50]}...")
+                                    print(f"    Chat {j + 1}: {text[:50]}...")
                     except StaleElementReferenceException:
                         continue
                     except Exception as e:
                         print(f"    Error checking chat {j}: {e}")
 
                 if visible_chats:
-                    print(f"✓ Found {len(visible_chats)} visible chats with selector: {selector}")
+                    print(
+                        f"✓ Found {len(visible_chats)} visible chats with selector: {selector}"
+                    )
                     return visible_chats
                 else:
-                    print(f"  No visible chats with meaningful content")
+                    print("  No visible chats with meaningful content")
         except Exception as e:
             print(f"  Error with selector {selector}: {e}")
             continue
 
     print("⚠️ No visible chats found with any selector")
-    
+
     # Last resort: try to get page source to see what's actually there
     try:
         print("\n📄 Page source sample (first 2000 chars):")
         print(driver.page_source[:2000] + "...")
     except:
         pass
-        
+
     return []
 
 
@@ -437,19 +439,19 @@ def extract_chat_data(chat_element):
     try:
         # Get chat name - based on your actual structure
         chat_name = "Unknown"
-        
+
         # Your structure shows text content directly in the ListItem
         full_text = chat_element.text.strip()
-        
+
         if full_text:
             # The format appears to be: "Name\nTime\nMessage preview"
-            lines = full_text.split('\n')
+            lines = full_text.split("\n")
             if lines:
                 # First line is usually the chat name
                 chat_name = lines[0].strip()
-                
+
                 # If first line looks like a time, try second line
-                if ':' in chat_name and ('AM' in chat_name or 'PM' in chat_name):
+                if ":" in chat_name and ("AM" in chat_name or "PM" in chat_name):
                     if len(lines) > 1:
                         chat_name = lines[1].strip()
 
@@ -457,7 +459,7 @@ def extract_chat_data(chat_element):
         if chat_name == "Unknown" or not chat_name:
             name_selectors = [
                 ".chat-title",
-                ".peer-title", 
+                ".peer-title",
                 "h3",
                 ".name",
                 "[class*='title']",
@@ -477,14 +479,16 @@ def extract_chat_data(chat_element):
         # Get last message preview from the full text
         last_message = ""
         if full_text:
-            lines = full_text.split('\n')
+            lines = full_text.split("\n")
             if len(lines) > 2:
                 # Usually the last line or lines contain the message
-                last_message = '\n'.join(lines[2:]).strip()
+                last_message = "\n".join(lines[2:]).strip()
             elif len(lines) > 1:
                 # Check if second line is not a time
                 second_line = lines[1].strip()
-                if not (':' in second_line and ('AM' in second_line or 'PM' in second_line)):
+                if not (
+                    ":" in second_line and ("AM" in second_line or "PM" in second_line)
+                ):
                     last_message = second_line
 
         return {
@@ -605,12 +609,11 @@ def get_last_messages_from_open_chat(driver, num_messages=10):
         message_selectors = [
             # Try specific message content selectors first
             ".message-content .text-content",
-            ".Message .message-content", 
+            ".Message .message-content",
             ".Message .text-content",
             ".message .text-content",
             ".Message",
             ".message",
-            
             # Broader selectors as fallback
             "[class*='Message']",
             "[class*='message']",
@@ -629,10 +632,12 @@ def get_last_messages_from_open_chat(driver, num_messages=10):
                         text = msg.text.strip()
                         if text and len(text) > 2:  # Must have some meaningful content
                             text_messages.append(msg)
-                    
+
                     if text_messages:
                         messages = text_messages
-                        print(f"    Found {len(messages)} messages using selector: {selector}")
+                        print(
+                            f"    Found {len(messages)} messages using selector: {selector}"
+                        )
                         break
             except Exception as e:
                 print(f"    Error with selector {selector}: {e}")
@@ -642,13 +647,22 @@ def get_last_messages_from_open_chat(driver, num_messages=10):
             print("    No messages found with any selector")
             # Try to get any text elements as last resort
             try:
-                all_text_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '@') or contains(text(), '+') or string-length(text()) > 10]")
+                all_text_elements = driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), '@') or contains(text(), '+') or string-length(text()) > 10]",
+                )
                 if all_text_elements:
-                    print(f"    Found {len(all_text_elements)} text elements as fallback")
-                    messages = all_text_elements[-num_messages:] if len(all_text_elements) > num_messages else all_text_elements
+                    print(
+                        f"    Found {len(all_text_elements)} text elements as fallback"
+                    )
+                    messages = (
+                        all_text_elements[-num_messages:]
+                        if len(all_text_elements) > num_messages
+                        else all_text_elements
+                    )
             except:
                 pass
-            
+
             if not messages:
                 return []
 
@@ -675,10 +689,17 @@ def get_last_messages_from_open_chat(driver, num_messages=10):
                 try:
                     # Look for outgoing message indicators
                     msg_classes = msg.get_attribute("class") or ""
-                    parent_element = msg.find_element(By.XPATH, "./ancestor::*[contains(@class, 'Message') or contains(@class, 'message')]")
+                    parent_element = msg.find_element(
+                        By.XPATH,
+                        "./ancestor::*[contains(@class, 'Message') or contains(@class, 'message')]",
+                    )
                     parent_classes = parent_element.get_attribute("class") or ""
-                    
-                    if "own" in parent_classes.lower() or "out" in parent_classes.lower() or "outgoing" in parent_classes.lower():
+
+                    if (
+                        "own" in parent_classes.lower()
+                        or "out" in parent_classes.lower()
+                        or "outgoing" in parent_classes.lower()
+                    ):
                         direction = "out"
                 except:
                     pass
@@ -687,7 +708,8 @@ def get_last_messages_from_open_chat(driver, num_messages=10):
                     {
                         "body": body,
                         "direction": direction,
-                        "position": i + 1,  # 1 = most recent, 2 = second most recent, etc.
+                        "position": i
+                        + 1,  # 1 = most recent, 2 = second most recent, etc.
                     }
                 )
 
@@ -709,7 +731,7 @@ def find_email_and_phone_in_messages(messages):
     """
     email_result = None
     phone_result = None
-    
+
     for msg in messages:
         # Look for email if not found yet
         if not email_result:
@@ -717,26 +739,30 @@ def find_email_and_phone_in_messages(messages):
             if email:
                 email_result = {
                     "email": email,
-                    "found_in_message": msg["body"][:100] + "..." if len(msg["body"]) > 100 else msg["body"],
+                    "found_in_message": msg["body"][:100] + "..."
+                    if len(msg["body"]) > 100
+                    else msg["body"],
                     "message_position": msg["position"],
                     "direction": msg["direction"],
                 }
-        
-        # Look for phone if not found yet  
+
+        # Look for phone if not found yet
         if not phone_result:
             phone = extract_phone_from_text(msg["body"])
             if phone:
                 phone_result = {
                     "phone": phone,
-                    "found_in_message": msg["body"][:100] + "..." if len(msg["body"]) > 100 else msg["body"],
+                    "found_in_message": msg["body"][:100] + "..."
+                    if len(msg["body"]) > 100
+                    else msg["body"],
                     "message_position": msg["position"],
                     "direction": msg["direction"],
                 }
-        
+
         # If both found, break early
         if email_result and phone_result:
             break
-    
+
     return email_result, phone_result
 
 
@@ -762,6 +788,8 @@ def process_chats_with_scrolling(driver):
     print("📜 Starting automated scrolling and processing...")
 
     while no_new_chats_count < 3:  # Stop after 3 attempts with no new chats
+        if total_processed >= 20:
+            break
         batch_count += 1
         print(f"\n--- Batch {batch_count} ---")
 
@@ -815,7 +843,9 @@ def process_chats_with_scrolling(driver):
                         print(f"    Retrieved {len(messages)} messages")
 
                         # Search for email and phone in all messages
-                        email_result, phone_result = find_email_and_phone_in_messages(messages)
+                        email_result, phone_result = find_email_and_phone_in_messages(
+                            messages
+                        )
 
                         phone = None
                         email = None
@@ -823,21 +853,27 @@ def process_chats_with_scrolling(driver):
                         # Use found phone or try to extract from chat name as fallback
                         if phone_result:
                             phone = clean_phone_number(phone_result["phone"])
-                            print(f"    Phone: {phone} (found in message #{phone_result['message_position']})")
+                            print(
+                                f"    Phone: {phone} (found in message #{phone_result['message_position']})"
+                            )
                         else:
                             # Try to extract phone from chat name as fallback
                             phone = clean_phone_number(chat_data["chat_name"])
                             if phone:
                                 print(f"    Phone: {phone} (from chat name)")
                             else:
-                                print(f"    Phone: Not found")
+                                print("    Phone: Not found")
 
                         if email_result:
                             email = email_result["email"]
-                            print(f"    Email: {email} (found in message #{email_result['message_position']})")
+                            print(
+                                f"    Email: {email} (found in message #{email_result['message_position']})"
+                            )
                             print(f"    Found in: {email_result['found_in_message']}")
                         else:
-                            print(f"    Email: Not found in last {len(messages)} messages")
+                            print(
+                                f"    Email: Not found in last {len(messages)} messages"
+                            )
 
                         # Save to database if both phone and email exist
                         if phone and email:
@@ -849,11 +885,15 @@ def process_chats_with_scrolling(driver):
                                 print("    📝 Already exists")
                         else:
                             missing = []
-                            if not phone: missing.append("phone")
-                            if not email: missing.append("email")
+                            if not phone:
+                                missing.append("phone")
+                            if not email:
+                                missing.append("email")
                             print(f"    ⚠️  Missing {', '.join(missing)}")
 
                         total_processed += 1
+                        if total_processed >= 20:
+                            break
                     else:
                         print("    ⚠️  No messages found")
                 else:
@@ -888,7 +928,9 @@ def print_database_stats():
     print(f"   Total contacts: {len(contacts)}")
 
     verified_count = sum(
-        1 for contact in contacts if contact[3]  # is_verified is at index 3
+        1
+        for contact in contacts
+        if contact[3]  # is_verified is at index 3
     )
     unverified_count = len(contacts) - verified_count
 
@@ -897,7 +939,9 @@ def print_database_stats():
 
     if contacts:
         print("   Latest contacts:")
-        for phone, email, chat_name, is_verified, created_at in contacts[:3]:  # Show latest 3
+        for phone, email, chat_name, is_verified, created_at in contacts[
+            :3
+        ]:  # Show latest 3
             status = "✓" if is_verified else "✗"
             print(f"     • {phone} - {email} ({chat_name}) [{status}] ({created_at})")
 

@@ -545,6 +545,8 @@ def process_chats_with_scrolling(driver):
     print("📜 Starting automated scrolling and processing...")
 
     while no_new_chats_count < 3:  # Stop after 3 attempts with no new chats
+        if total_processed >= 20:
+            break
         batch_count += 1
         print(f"\n--- Batch {batch_count} ---")
 
@@ -629,6 +631,8 @@ def process_chats_with_scrolling(driver):
                             print("    ⚠️  No email found")
 
                         total_processed += 1
+                        if total_processed >= 20:
+                            break
                     else:
                         print("    ⚠️  No messages found")
                 else:
