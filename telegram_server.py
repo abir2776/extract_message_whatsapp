@@ -1,9 +1,11 @@
+import json
 import os
 import re
 import sqlite3
 import time
 from datetime import datetime
 
+import requests
 from selenium import webdriver
 from selenium.common.exceptions import (
     StaleElementReferenceException,
@@ -18,7 +20,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Configuration
 TELEGRAM_WEB = "https://web.telegram.org/"
 CHROME_PROFILE_DIR = os.path.abspath("./chrome-profile-telegram")
-DATABASE_FILE = "telegram_contacts.db"
+DATABASE_FILE = "whats_app_telegram_contacts.db"
 BATCH_SIZE = 10  # Process chats in smaller batches
 
 
@@ -33,7 +35,6 @@ def init_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             phone TEXT NOT NULL,
             email TEXT NOT NULL,
-            chat_name TEXT,
             is_verified BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(email)
@@ -61,7 +62,7 @@ def init_database():
     print(f"✓ Database initialized: {DATABASE_FILE}")
 
 
-def save_contact(phone, email, chat_name=""):
+def save_contact(phone, email):
     """
     Save phone and email to database with is_verified set to False
     Only saves if both phone and email are provided
@@ -69,6 +70,9 @@ def save_contact(phone, email, chat_name=""):
     """
     if not phone or not email:
         print("❌ Both phone and email are required")
+        return False
+    if len(phone) < 12:
+        print("Phone number is not valid")
         return False
 
     try:
@@ -80,6 +84,7 @@ def save_contact(phone, email, chat_name=""):
             """
             SELECT COUNT(*) FROM contacts 
             WHERE email = ?
+            AND is_verified = 1
         """,
             (email,),
         )
@@ -88,23 +93,66 @@ def save_contact(phone, email, chat_name=""):
             print(f"⚠️  Contact already exists: {phone} - {email}")
             conn.close()
             return False
-
-        # Insert new contact with is_verified = False
-        cursor.execute(
-            """
-            INSERT INTO contacts (phone, email, chat_name, is_verified) 
-            VALUES (?, ?, ?, ?)
-        """,
-            (phone, email, chat_name, False),
+        url = (
+            "http://api.topofstacksoftware.com/quran-hadith/api/verify-by-whatsapp-text"
         )
 
-        conn.commit()
-        conn.close()
+        # Request payload
+        payload = {"key": "9ej33TVT1", "cell": phone, "email": email}
 
-        print(
-            f"✅ New contact saved: {phone} - {email} (chat: {chat_name}) (verified: False)"
-        )
-        return True
+        # Headers (optional, but good practice)
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        try:
+            # Make the POST request
+            response = requests.post(url, json=payload, headers=headers)
+
+            # Print response status code
+            print(f"Status Code: {response.status_code}")
+
+            # Print response headers
+            print(f"Response Headers: {dict(response.headers)}")
+
+            # Try to parse JSON response
+            try:
+                response_data = response.json()
+                print(f"Response JSON: {json.dumps(response_data, indent=2)}")
+            except json.JSONDecodeError:
+                print(f"Response Text: {response.text}")
+
+            # Check if request was successful
+            if response.status_code == 200:
+                print("✅ Request successful!")
+                is_replaced = response_data.get("is_replaced", None)
+                if is_replaced == "true":
+                    cursor.execute(
+                        """
+                        UPDATE contacts 
+                        SET is_verified = ? 
+                        WHERE phone = ?
+                        """,
+                        (False, phone),
+                    )
+                    conn.commit()
+                    print("✅ Email replaced")
+                cursor.execute(
+                    """
+                    INSERT INTO contacts (phone, email, is_verified) 
+                    VALUES (?, ?, ?)
+                """,
+                    (phone, email, True),
+                )
+                conn.commit()
+                print(f"✅ New contact saved: {phone} - {email} (verified: True)")
+                conn.close()
+                return True
+            else:
+                print(f"❌ Request failed with status code: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Request failed with error: {e}")
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
 
     except sqlite3.IntegrityError:
         print(f"⚠️  Contact already exists: {phone} - {email}")
@@ -877,7 +925,7 @@ def process_chats_with_scrolling(driver):
 
                         # Save to database if both phone and email exist
                         if phone and email:
-                            if save_contact(phone, email, chat_data["chat_name"]):
+                            if save_contact(phone, email):
                                 print("    💾 Saved to database!")
                                 batch_saved += 1
                                 total_saved += 1

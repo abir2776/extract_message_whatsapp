@@ -2,6 +2,8 @@ import os
 import re
 import sqlite3
 import time
+import requests
+import json
 from datetime import datetime
 
 from selenium import webdriver
@@ -18,7 +20,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Configuration
 WHATSAPP_WEB = "https://web.whatsapp.com/"
 CHROME_PROFILE_DIR = os.path.abspath("./chrome-profile-wa")
-DATABASE_FILE = "whatsapp_contacts.db"
+DATABASE_FILE = "whats_app_telegram_contacts.db"
 BATCH_SIZE = 10  # Process chats in smaller batches
 
 
@@ -64,6 +66,9 @@ def save_contact(phone, email):
     if not phone or not email:
         print("❌ Both phone and email are required")
         return False
+    if len(phone) < 12:
+        print("Phone number is not valid")
+        return False
 
     try:
         conn = sqlite3.connect(DATABASE_FILE)
@@ -74,6 +79,7 @@ def save_contact(phone, email):
             """
             SELECT COUNT(*) FROM contacts 
             WHERE email = ?
+            AND is_verified = 1
         """,
             (email,),
         )
@@ -82,21 +88,66 @@ def save_contact(phone, email):
             print(f"⚠️  Contact already exists: {phone} - {email}")
             conn.close()
             return False
-
-        # Insert new contact with is_verified = False
-        cursor.execute(
-            """
-            INSERT INTO contacts (phone, email, is_verified) 
-            VALUES (?, ?, ?)
-        """,
-            (phone, email, False),
+        url = (
+            "http://api.topofstacksoftware.com/quran-hadith/api/verify-by-whatsapp-text"
         )
 
-        conn.commit()
-        conn.close()
+        # Request payload
+        payload = {"key": "9ej33TVT1", "cell": phone, "email": email}
 
-        print(f"✅ New contact saved: {phone} - {email} (verified: False)")
-        return True
+        # Headers (optional, but good practice)
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        try:
+            # Make the POST request
+            response = requests.post(url, json=payload, headers=headers)
+
+            # Print response status code
+            print(f"Status Code: {response.status_code}")
+
+            # Print response headers
+            print(f"Response Headers: {dict(response.headers)}")
+
+            # Try to parse JSON response
+            try:
+                response_data = response.json()
+                print(f"Response JSON: {json.dumps(response_data, indent=2)}")
+            except json.JSONDecodeError:
+                print(f"Response Text: {response.text}")
+
+            # Check if request was successful
+            if response.status_code == 200:
+                print("✅ Request successful!")
+                is_replaced = response_data.get("is_replaced", None)
+                if is_replaced == "true":
+                    cursor.execute(
+                        """
+                        UPDATE contacts 
+                        SET is_verified = ? 
+                        WHERE phone = ?
+                        """,
+                        (False, phone),
+                    )
+                    conn.commit()
+                    print("✅ Email replaced")
+                cursor.execute(
+                    """
+                    INSERT INTO contacts (phone, email, is_verified) 
+                    VALUES (?, ?, ?)
+                """,
+                    (phone, email, True),
+                )
+                conn.commit()
+                print(f"✅ New contact saved: {phone} - {email} (verified: True)")
+                conn.close()
+                return True
+            else:
+                print(f"❌ Request failed with status code: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Request failed with error: {e}")
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
 
     except sqlite3.IntegrityError:
         print(f"⚠️  Contact already exists: {phone} - {email}")
