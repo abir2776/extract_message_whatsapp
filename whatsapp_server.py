@@ -1,11 +1,11 @@
+import json
 import os
 import re
 import sqlite3
 import time
-import requests
-import json
 from datetime import datetime
 
+import requests
 from selenium import webdriver
 from selenium.common.exceptions import (
     StaleElementReferenceException,
@@ -217,16 +217,13 @@ def extract_email_from_text(text):
 
 
 def clean_phone_number(phone_text):
-    """Clean and format phone number"""
+    """Clean and format phone number by removing +, spaces, and hyphens"""
     # Remove common prefixes and clean the phone number
     phone = phone_text.strip()
-
-    # Remove WhatsApp Web formatting (but keep the + sign)
+    # Remove WhatsApp Web formatting
     phone = phone.replace("~", "")
-
-    # Extract only numbers and some special chars (including + sign)
-    phone = re.sub(r"[^\d\s\-\(\)\+]", "", phone)
-
+    # Remove plus sign, spaces, and hyphens, keep only digits
+    phone = re.sub(r"[^\d]", "", phone)
     return phone.strip() if phone else None
 
 
